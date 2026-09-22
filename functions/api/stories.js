@@ -27,6 +27,8 @@ export async function onRequest({ request, env }) {
     binds.push(`%${q}%`, `%${q}%`);
   }
 
+  if (!env.DB) return json({ stories: [], unconfigured: true });
+
   const { results } = await env.DB.prepare(
     `SELECT slug, display_name, state, onset_year, title, body, approved_at
        FROM stories

@@ -16,6 +16,7 @@ const RESERVED = new Set(['share', 'thanks', 'index', '']);
 export async function onRequest({ params, request, env, next }) {
   const slug = String(params.slug || '').slice(0, 120);
   if (RESERVED.has(slug)) return next();
+  if (!env.DB) return next();   // no database yet: fall through to the 404 asset
 
   const story = await env.DB.prepare(
     `SELECT id, slug, display_name, state, onset_year, title, body, approved_at

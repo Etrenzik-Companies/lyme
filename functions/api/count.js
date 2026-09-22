@@ -10,6 +10,10 @@ export async function onRequest({ request, env }) {
   const bad = methodGuard(request, 'GET');
   if (bad) return bad;
 
+  if (!env.DB) {
+    return json({ verified: 0, states_represented: 0, updated_at: new Date().toISOString(), unconfigured: true });
+  }
+
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS verified, COUNT(DISTINCT state) AS states
        FROM signatures

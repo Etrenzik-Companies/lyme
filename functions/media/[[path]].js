@@ -6,7 +6,7 @@
  */
 export async function onRequest({ params, env }) {
   const key = Array.isArray(params.path) ? params.path.join('/') : String(params.path || '');
-  if (!key || !env.MEDIA) return new Response('Not found', { status: 404 });
+  if (!key || !env.MEDIA || !env.DB) return new Response('Not found', { status: 404 });
 
   const allowed = await env.DB.prepare(
     `SELECT m.content_type

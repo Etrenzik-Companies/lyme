@@ -49,10 +49,30 @@ jobs:
           test -f dist/assets/og/tracker.png
           echo "tracker rendered server-side with annotations: ok"
 
-      - name: Warn if the D1 binding is still a placeholder
+      # Cloudflare rejects the whole deployment if a binding points at a placeholder id,
+      # which would keep the entire site offline over one unprovisioned resource. Strip
+      # any such binding instead: every route guards on a missing binding and degrades to
+      # "not configured yet" rather than crashing.
+      - name: Drop bindings that are not provisioned yet
         run: |
+          set -euo pipefail
           if grep -q 'REPLACE_WITH_ID' wrangler.toml; then
-            echo "::warning::wrangler.toml still has placeholder resource IDs — the static site will deploy but every API route will fail. Run the 'Provision Cloudflare resources' workflow, then commit the IDs it prints."
+            node - <<'JS'
+          const fs = require('fs');
+          let toml = fs.readFileSync('wrangler.toml', 'utf8');
+          const dropped = [];
+          // Remove each [[block]] ... (up to the next [ or EOF) that still has a placeholder.
+          toml = toml.replace(/\[\[(d1_databases|kv_namespaces|r2_buckets)\]\][\s\S]*?(?=\n\[|\n*$)/g, (block, kind) => {
+            if (!block.includes('REPLACE_WITH_ID')) return block;
+            dropped.push(kind);
+            return '';
+          });
+          fs.writeFileSync('wrangler.toml', toml);
+          console.log(dropped.length ? `Dropped unprovisioned bindings: ${dropped.join(', ')}` : 'Nothing to drop.');
+          JS
+            echo "::warning::Deploying without one or more bindings. The site and the tracker work; the petition, stories and news APIs return 'not configured yet' until the resource exists and its id is committed."
+          else
+            echo "All bindings configured."
           fi
 
       - name: Resolve the account

@@ -10,7 +10,7 @@
  *   GET  ?t=…&format=json  the export
  *   POST ?t=…            body {action:'delete'}
  */
-import { json, fail, rateLimited, clientIp } from '../../lib/http.js';
+import { json, fail, rateLimited, clientIp, requireDb } from '../../lib/http.js';
 import { decrypt } from '../../lib/crypto.js';
 
 async function lookup(env, t) {
@@ -46,6 +46,9 @@ function page(title, inner) {
 }
 
 export async function onRequest({ request, env }) {
+  const noDb = requireDb(env, { readOnly: true });
+  if (noDb) return noDb;
+
   const url = new URL(request.url);
   const t = url.searchParams.get('t');
 

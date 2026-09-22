@@ -6,7 +6,7 @@
  * writing about the worst years of their life overshare, and a moderator should see the
  * risky bits highlighted rather than have to spot them.
  */
-import { json, fail, methodGuard, str, isEmail, rateLimited, screenSubmission, clientIp } from '../../lib/http.js';
+import { json, fail, methodGuard, str, isEmail, rateLimited, screenSubmission, clientIp, requireDb } from '../../lib/http.js';
 import { hashEmail, hashIp, hashUa, encrypt, token } from '../../lib/crypto.js';
 import { sendStoryReceived } from '../../lib/email.js';
 import { stripMetadata } from '../../lib/image.js';
@@ -39,6 +39,9 @@ function slugify(title, id) {
 export async function onRequest({ request, env }) {
   const bad = methodGuard(request, 'POST');
   if (bad) return bad;
+
+  const noDb = requireDb(env, { readOnly: false });
+  if (noDb) return noDb;
 
   const ip = clientIp(request);
   if (await rateLimited(env, `story:${ip}`, { limit: 3, windowSec: 3600 })) {

@@ -16,6 +16,8 @@ export async function onRequest({ request, env }) {
   const limit = clamp(url.searchParams.get('limit') || 36, 1, 60);
   const offset = clamp(url.searchParams.get('offset') || 0, 0, 100000);
 
+  if (!env.DB) return json({ signatures: [], unconfigured: true });
+
   const { results } = await env.DB.prepare(
     `SELECT first_name, last_initial, state, relationship, statement, created_at
        FROM signatures

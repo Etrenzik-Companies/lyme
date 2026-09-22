@@ -6,7 +6,7 @@
  * a petition whose count can be inflated by a script is worth nothing to a congressional
  * office and worse than nothing to a law firm.
  */
-import { json, fail, methodGuard, readBody, str, isEmail, rateLimited, screenSubmission, clientIp } from '../../lib/http.js';
+import { json, fail, methodGuard, readBody, str, isEmail, rateLimited, screenSubmission, clientIp, requireDb } from '../../lib/http.js';
 import { hashEmail, hashIp, hashUa, encrypt, token } from '../../lib/crypto.js';
 import { sendVerification } from '../../lib/email.js';
 import { RELATIONSHIPS } from '../../lib/constants.js';
@@ -14,6 +14,9 @@ import { RELATIONSHIPS } from '../../lib/constants.js';
 export async function onRequest({ request, env }) {
   const bad = methodGuard(request, 'POST');
   if (bad) return bad;
+
+  const noDb = requireDb(env, { readOnly: false });
+  if (noDb) return noDb;
 
   const ip = clientIp(request);
   if (await rateLimited(env, `sign:${ip}`, { limit: 5, windowSec: 3600 })) {

@@ -3,11 +3,14 @@
  *
  * Only after this runs does a signature count anywhere public.
  */
-import { fail, methodGuard } from '../../lib/http.js';
+import { fail, methodGuard, requireDb } from '../../lib/http.js';
 
 export async function onRequest({ request, env }) {
   const bad = methodGuard(request, 'GET');
   if (bad) return bad;
+
+  const noDb = requireDb(env, { readOnly: true });
+  if (noDb) return noDb;
 
   const url = new URL(request.url);
   const t = url.searchParams.get('t');
