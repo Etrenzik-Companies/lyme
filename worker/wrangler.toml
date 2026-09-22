@@ -9,7 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 crons = ["0 */6 * * *", "0 13,21 * * *", "30 4 * * *"]
 
 [vars]
-SITE_URL = "https://lyme.etrenzik.com"
+SITE_URL = "https://knowlyme.com"
 X_REFRESH_TOKEN_KV_KEY = "x_refresh_token"
 
 # Secrets (wrangler secret put --config worker/wrangler.toml <NAME>):

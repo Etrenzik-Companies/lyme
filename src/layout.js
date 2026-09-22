@@ -8,7 +8,7 @@
 export const SITE = {
   name: 'The Lyme Accountability Project',
   short: 'Lyme Accountability',
-  url: 'https://lyme.etrenzik.com',
+  url: 'https://knowlyme.com',
   tagline: 'Track the cases. Read the record. Demand the files.',
   description:
     'Independent tracker of US Lyme disease case data, a daily news feed, the documented ' +

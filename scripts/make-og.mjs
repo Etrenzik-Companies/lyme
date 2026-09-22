@@ -61,7 +61,7 @@ function frame(inner) {
     <circle cx="12" cy="0" r="11" fill="none" stroke="${ALARM}" stroke-width="2.6"/>
     <circle cx="12" cy="0" r="4" fill="${ALARM}"/>
     <text x="36" y="6" font-family="${FONT}" font-size="22" font-weight="700" fill="${TEXT}">The Lyme Accountability Project</text>
-    <text x="36" y="34" font-family="${FONT}" font-size="18" fill="${MUTED}">lyme.etrenzik.com</text>
+    <text x="36" y="34" font-family="${FONT}" font-size="18" fill="${MUTED}">knowlyme.com</text>
   </g>
 </svg>`;
 }

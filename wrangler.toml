@@ -8,9 +8,9 @@ pages_build_output_dir = "dist"
 #   wrangler pages secret put <NAME>
 # Required secrets: TURNSTILE_SECRET, EMAIL_HASH_SALT, EMAIL_ENC_KEY, IP_HASH_SALT
 [vars]
-SITE_URL = "https://example.pages.dev"
+SITE_URL = "https://knowlyme.com"
 SITE_NAME = "The Lyme Accountability Project"
-CONTACT_EMAIL = "contact@example.org"
+CONTACT_EMAIL = "contact@knowlyme.com"
 TURNSTILE_SITE_KEY = "1x00000000000000000000AA"   # Cloudflare test key; replace before launch
 
 [[d1_databases]]

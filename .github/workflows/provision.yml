@@ -3,10 +3,12 @@ name: Provision Cloudflare resources
 # One-time (idempotent) setup, run by hand:
 #   gh workflow run provision.yml
 #
-# Creates the Pages project, the D1 database, the KV namespace and the R2 bucket, then
-# prints the IDs in the job summary. Copy them into wrangler.toml and worker/wrangler.toml
-# and commit — they are configuration, not secrets.
+# Order matters here. The Pages project and the custom domain come FIRST, because they are
+# what gets the site publicly visible. The storage resources come after and are allowed to
+# fail: an API token scoped only to Pages is a perfectly reasonable starting point, and a
+# missing D1 binding degrades the API routes rather than the whole site.
 #
+# The summary at the end lists exactly which token permissions are missing, if any.
 # Re-running is safe: every step tolerates "already exists".
 
 on:
@@ -18,7 +20,7 @@ on:
         required: true
       custom_domain:
         description: Custom domain to attach (blank to skip)
-        default: lyme.etrenzik.com
+        default: knowlyme.com
         required: false
 
 jobs:
@@ -34,7 +36,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci --omit=optional
 
       - name: Resolve the account
@@ -46,7 +47,6 @@ jobs:
             echo "Using CLOUDFLARE_ACCOUNT_ID from repository secrets."
             exit 0
           fi
-          # The token can usually see exactly one account; use it when that is true.
           resp=$(curl -sS https://api.cloudflare.com/client/v4/accounts \
                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
           count=$(echo "$resp" | jq '.result | length')
@@ -55,87 +55,145 @@ jobs:
             echo "$resp" | jq -r '.result[]? | "  \(.id)  \(.name)"'
             exit 1
           fi
-          id=$(echo "$resp" | jq -r '.result[0].id')
-          name=$(echo "$resp" | jq -r '.result[0].name')
-          echo "id=$id" >> "$GITHUB_OUTPUT"
-          echo "Account: $name ($id)"
+          echo "id=$(echo "$resp" | jq -r '.result[0].id')" >> "$GITHUB_OUTPUT"
+          echo "Account: $(echo "$resp" | jq -r '.result[0].name')"
 
-      - name: Create the D1 database
-        id: d1
+      - name: Probe what this token is allowed to do
+        id: probe
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+          ACCT: ${{ steps.account.outputs.id }}
         run: |
           set -uo pipefail
-          npx wrangler d1 create lyme-db 2>&1 | tee /tmp/d1.log || true
-          # Whether it was just created or already existed, read the id back from the list.
-          id=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[] | select(.name=="lyme-db") | .uuid')
-          if [ -z "$id" ] || [ "$id" = "null" ]; then
-            echo "::error::Could not resolve the lyme-db database id."; cat /tmp/d1.log; exit 1
-          fi
-          echo "id=$id" >> "$GITHUB_OUTPUT"
-          echo "D1 lyme-db: $id"
+          probe () {  # name, path
+            code=$(curl -sS -o /tmp/p.json -w '%{http_code}' \
+                     "https://api.cloudflare.com/client/v4/accounts/$ACCT/$2" \
+                     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+            ok=$(jq -r '.success // false' /tmp/p.json 2>/dev/null || echo false)
+            if [ "$code" = "200" ] && [ "$ok" = "true" ]; then
+              echo "  OK       $1"; echo "$1=yes" >> "$GITHUB_OUTPUT"
+            else
+              echo "  MISSING  $1  (HTTP $code)"; echo "$1=no" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          echo "Token capabilities:"
+          probe pages   "pages/projects"
+          probe d1      "d1/database"
+          probe kv      "storage/kv/namespaces"
+          probe r2      "r2/buckets"
+          probe workers "workers/scripts"
 
-      - name: Create the KV namespace
-        id: kv
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
-        run: |
-          set -uo pipefail
-          npx wrangler kv namespace create KV 2>&1 | tee /tmp/kv.log || true
-          id=$(npx wrangler kv namespace list 2>/dev/null \
-                | jq -r '.[] | select(.title|test("KV$")) | .id' | head -1)
-          if [ -z "$id" ] || [ "$id" = "null" ]; then
-            echo "::error::Could not resolve the KV namespace id."; cat /tmp/kv.log; exit 1
-          fi
-          echo "id=$id" >> "$GITHUB_OUTPUT"
-          echo "KV: $id"
-
-      - name: Create the R2 bucket
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
-        run: npx wrangler r2 bucket create lyme-story-media || echo "bucket already exists"
+      # ---- critical path: get the site publicly visible -----------------------
 
       - name: Create the Pages project
+        if: steps.probe.outputs.pages == 'yes'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
         run: |
           npx wrangler pages project create "${{ inputs.project_name }}" \
             --production-branch=main || echo "project already exists"
 
-      - name: Apply the database schema
+      - name: Attach the custom domain
+        id: domain
+        if: ${{ steps.probe.outputs.pages == 'yes' && inputs.custom_domain != '' }}
+        env:
+          ACCT: ${{ steps.account.outputs.id }}
+        run: |
+          set -uo pipefail
+          out=$(curl -sS -X POST \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/${{ inputs.project_name }}/domains" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"name":"${{ inputs.custom_domain }}"}')
+          echo "$out" | jq '{success, errors, name: .result.name, status: .result.status}'
+          if [ "$(echo "$out" | jq -r '.success')" = "true" ]; then
+            echo "attached=yes" >> "$GITHUB_OUTPUT"
+          elif echo "$out" | jq -e '.errors[]? | select(.message|test("already"; "i"))' >/dev/null; then
+            echo "attached=yes" >> "$GITHUB_OUTPUT"
+            echo "Domain was already attached."
+          else
+            echo "attached=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::Could not attach ${{ inputs.custom_domain }} — see the response above."
+          fi
+
+      # ---- storage: nice to have, allowed to fail -----------------------------
+
+      - name: Create the D1 database
+        id: d1
+        if: steps.probe.outputs.d1 == 'yes'
+        continue-on-error: true
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
         run: |
-          # The schema is written with IF NOT EXISTS throughout, so this is safe to repeat.
+          set -uo pipefail
+          npx wrangler d1 create lyme-db 2>&1 | tee /tmp/d1.log || true
+          id=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[]? | select(.name=="lyme-db") | .uuid')
+          [ -n "$id" ] && [ "$id" != "null" ] || { echo "::warning::could not resolve lyme-db id"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "D1 lyme-db: $id"
+
+      - name: Create the KV namespace
+        id: kv
+        if: steps.probe.outputs.kv == 'yes'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: |
+          set -uo pipefail
+          npx wrangler kv namespace create KV 2>&1 | tee /tmp/kv.log || true
+          id=$(npx wrangler kv namespace list 2>/dev/null | jq -r '.[]? | select(.title|test("KV$")) | .id' | head -1)
+          [ -n "$id" ] && [ "$id" != "null" ] || { echo "::warning::could not resolve the KV id"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "KV: $id"
+
+      - name: Create the R2 bucket
+        if: steps.probe.outputs.r2 == 'yes'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: npx wrangler r2 bucket create lyme-story-media || echo "bucket already exists"
+
+      - name: Apply the database schema
+        if: steps.d1.outputs.id != ''
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: |
+          # schema.sql is IF NOT EXISTS throughout, so repeating this is safe.
           sed -i "s|REPLACE_WITH_ID_FROM_wrangler_d1_create|${{ steps.d1.outputs.id }}|" wrangler.toml
           npx wrangler d1 execute lyme-db --remote --file=./schema.sql
 
-      - name: Attach the custom domain
-        if: ${{ inputs.custom_domain != '' }}
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
-        run: |
-          curl -sS -X POST \
-            "https://api.cloudflare.com/client/v4/accounts/${{ steps.account.outputs.id }}/pages/projects/${{ inputs.project_name }}/domains" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data '{"name":"${{ inputs.custom_domain }}"}' | jq '{success, errors, name: .result.name, status: .result.status}'
+      # ------------------------------------------------------------------------
 
       - name: Summary
+        if: always()
         run: |
           {
-            echo "## Cloudflare resources"
+            echo "## Provisioning result"
             echo
-            echo "Copy these into \`wrangler.toml\` **and** \`worker/wrangler.toml\`, then commit."
+            echo '| Resource | Status | Value to commit |'
+            echo '|---|---|---|'
+            echo '| Account ID | found | `${{ steps.account.outputs.id }}` |'
+            echo '| Pages project `${{ inputs.project_name }}` | ${{ steps.probe.outputs.pages == ''yes'' && ''created / exists'' || ''**token lacks Pages:Edit**'' }} | — |'
+            echo '| Custom domain | ${{ steps.domain.outputs.attached == ''yes'' && ''attached'' || ''not attached'' }} | `${{ inputs.custom_domain }}` |'
+            echo '| D1 `lyme-db` | ${{ steps.probe.outputs.d1 == ''yes'' && ''ok'' || ''**token lacks D1:Edit**'' }} | `${{ steps.d1.outputs.id }}` |'
+            echo '| KV | ${{ steps.probe.outputs.kv == ''yes'' && ''ok'' || ''**token lacks Workers KV:Edit**'' }} | `${{ steps.kv.outputs.id }}` |'
+            echo '| R2 bucket | ${{ steps.probe.outputs.r2 == ''yes'' && ''ok'' || ''**token lacks Workers R2:Edit**'' }} | `lyme-story-media` |'
+            echo '| Workers (cron) | ${{ steps.probe.outputs.workers == ''yes'' && ''ok'' || ''**token lacks Workers Scripts:Edit**'' }} | — |'
             echo
-            echo '| Binding | Value |'
-            echo '|---|---|'
-            echo '| Account ID | `${{ steps.account.outputs.id }}` |'
-            echo '| D1 `database_id` | `${{ steps.d1.outputs.id }}` |'
-            echo '| KV `id` | `${{ steps.kv.outputs.id }}` |'
-            echo '| R2 bucket | `lyme-story-media` |'
-            echo '| Pages project | `${{ inputs.project_name }}` |'
-            echo '| Custom domain | `${{ inputs.custom_domain }}` |'
-            echo
-            echo "These are identifiers, not secrets."
+            if [ "${{ steps.probe.outputs.d1 }}" != "yes" ] || [ "${{ steps.probe.outputs.kv }}" != "yes" ] || [ "${{ steps.probe.outputs.r2 }}" != "yes" ]; then
+              echo "### Token permissions to add"
+              echo
+              echo "Cloudflare dashboard -> My Profile -> API Tokens -> edit the token used here, and add:"
+              echo
+              echo '- **Account / D1** -> Edit'
+              echo '- **Account / Workers KV Storage** -> Edit'
+              echo '- **Account / Workers R2 Storage** -> Edit'
+              echo '- **Account / Workers Scripts** -> Edit  (only needed for the cron worker)'
+              echo
+              echo "Then re-run this workflow. The static site deploys and reads fine without them;"
+              echo "the petition, stories and news APIs need D1 and KV."
+            else
+              echo "All resources present. Paste the IDs above into \`wrangler.toml\` **and**"
+              echo "\`worker/wrangler.toml\`, then commit. They are identifiers, not secrets."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

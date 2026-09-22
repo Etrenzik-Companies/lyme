@@ -135,7 +135,7 @@ async function enqueue(env, draft) {
 /* ---------------------------------------------------------------- runner */
 
 export async function runSocial(env) {
-  const site = env.SITE_URL || 'https://lyme.etrenzik.com';
+  const site = env.SITE_URL || 'https://knowlyme.com';
   const report = { drafted: 0, posted: 0, expired: 0, failed: 0 };
 
   // 1. Expire anything a human did not get to in time. Silence beats an unreviewed post.

@@ -132,7 +132,7 @@ Cloudflare Access with two-factor authentication.</p>
 
 <h2>Changes</h2>
 <p>Material changes will be announced on the site and dated here. Contact:
-<a href="mailto:contact@example.org">contact@example.org</a>.</p>
+<a href="mailto:contact@knowlyme.com">contact@knowlyme.com</a>.</p>
 </div></section>`;
   return { title: 'Privacy policy', description: 'What this site collects, how it is stored, and how to delete it.', path: '/legal/privacy/', body };
 }
@@ -177,7 +177,7 @@ verification and do not imply endorsement.</p>
 indirect or consequential damages arising from use of this site.</p>
 
 <h2>Contact</h2>
-<p><a href="mailto:contact@example.org">contact@example.org</a></p>
+<p><a href="mailto:contact@knowlyme.com">contact@knowlyme.com</a></p>
 </div></section>`;
   return { title: 'Terms of use', description: 'Terms for using this site and submitting content.', path: '/legal/terms/', body };
 }
@@ -264,7 +264,7 @@ article text. Publishers who want their outlet excluded should email us.</p>
 wrong, what it says now, and who reported it.</p>
 
 <h2>Report an error</h2>
-<p>Email <a href="mailto:contact@example.org">contact@example.org</a>. Documented corrections are
+<p>Email <a href="mailto:contact@knowlyme.com">contact@knowlyme.com</a>. Documented corrections are
 made within 48 hours. If you can point at a primary source, we will take it seriously regardless of
 whether it helps our argument.</p>
 </div></section>`;

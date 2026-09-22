@@ -3,7 +3,7 @@
 Case tracker, daily news engine, sourced federal record, petition, and a moderated patient
 story archive. Cloudflare Pages + Functions + D1 + KV + R2, with a scheduled Worker.
 
-Live at **https://lyme.etrenzik.com**
+Live at **https://knowlyme.com**
 
 ---
 
@@ -96,7 +96,7 @@ npx wrangler d1 execute lyme-db --remote --file=./seeds.sql   # optional example
 ```bash
 npx wrangler pages project create lyme --production-branch=main
 npm run deploy
-npx wrangler pages domain add lyme lyme.etrenzik.com
+npx wrangler pages domain add lyme knowlyme.com
 ```
 
 The last command adds the custom domain. Because `etrenzik.com` is already on Cloudflare,
@@ -121,7 +121,7 @@ Generate each salt/key with something like
 
 ### 5. Turnstile
 
-Create a widget at **Cloudflare dashboard → Turnstile**, hostname `lyme.etrenzik.com`.
+Create a widget at **Cloudflare dashboard → Turnstile**, hostname `knowlyme.com`.
 Put the **site key** in `wrangler.toml` under `[vars] TURNSTILE_SITE_KEY`, and the **secret
 key** in the Pages secret above. Until you do, the build uses Cloudflare's always-pass test
 key and the server-side check is skipped — fine for development, not for launch.
@@ -130,7 +130,7 @@ key and the server-side check is skipped — fine for development, not for launc
 
 Zero Trust → Access → Applications → Add a self-hosted application:
 
-- Domain: `lyme.etrenzik.com`, path `admin`
+- Domain: `knowlyme.com`, path `admin`
 - Policy: allow your own email address only, with a second factor
 
 Then set these Pages vars so the API verifies the Access JWT server-side as well:
@@ -219,7 +219,7 @@ schema.sql    D1 schema     seeds.sql  clearly-labelled example stories
 - [ ] **Have a lawyer read `/legal/` and the petition page.** The disclaimers are written to
       be honest about sovereign immunity, the FTCA and filing deadlines, but they are not a
       substitute for counsel — and this site asks sick people for their contact details.
-- [ ] Replace `contact@example.org` throughout (`src/pages/static-pages.js`, `wrangler.toml`).
+- [ ] Confirm `contact@knowlyme.com` actually receives mail (it is referenced on every legal page).
 - [ ] Set every secret in §4; confirm `TURNSTILE_SECRET` is live, not the test key.
 - [ ] Send yourself a real signature and confirm the email arrives and the link works.
 - [ ] Delete the seed stories once real ones land:

@@ -9,7 +9,7 @@
  * category, publishedAt }. Everything after that (dedupe, scoring, storage) is common.
  */
 
-const UA = 'LymeAccountabilityProject/1.0 (+https://lyme.etrenzik.com/about/; news aggregator)';
+const UA = 'LymeAccountabilityProject/1.0 (+https://knowlyme.com/about/; news aggregator)';
 const TIMEOUT_MS = 12000;
 
 async function get(url, { headers = {}, json: wantJson = false } = {}) {

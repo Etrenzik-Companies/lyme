@@ -39,8 +39,8 @@ than as dead links.
 3. **User authentication settings**:
    - App permissions: **Read and write**
    - Type of App: **Web App, Automated App or Bot**
-   - Callback URI: `https://lyme.etrenzik.com/oauth/x/callback`
-   - Website URL: `https://lyme.etrenzik.com`
+   - Callback URI: `https://knowlyme.com/oauth/x/callback`
+   - Website URL: `https://knowlyme.com`
 4. Save the **OAuth 2.0 Client ID** and **Client Secret**.
 
 ### Scopes
