@@ -1,0 +1,141 @@
+name: Provision Cloudflare resources
+
+# One-time (idempotent) setup, run by hand:
+#   gh workflow run provision.yml
+#
+# Creates the Pages project, the D1 database, the KV namespace and the R2 bucket, then
+# prints the IDs in the job summary. Copy them into wrangler.toml and worker/wrangler.toml
+# and commit — they are configuration, not secrets.
+#
+# Re-running is safe: every step tolerates "already exists".
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: Cloudflare Pages project name
+        default: lyme
+        required: true
+      custom_domain:
+        description: Custom domain to attach (blank to skip)
+        default: lyme.etrenzik.com
+        required: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --omit=optional
+
+      - name: Resolve the account
+        id: account
+        run: |
+          set -euo pipefail
+          if [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "id=$CLOUDFLARE_ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+            echo "Using CLOUDFLARE_ACCOUNT_ID from repository secrets."
+            exit 0
+          fi
+          # The token can usually see exactly one account; use it when that is true.
+          resp=$(curl -sS https://api.cloudflare.com/client/v4/accounts \
+                   -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+          count=$(echo "$resp" | jq '.result | length')
+          if [ "$count" != "1" ]; then
+            echo "::error::Found $count accounts for this token. Add a CLOUDFLARE_ACCOUNT_ID repository secret."
+            echo "$resp" | jq -r '.result[]? | "  \(.id)  \(.name)"'
+            exit 1
+          fi
+          id=$(echo "$resp" | jq -r '.result[0].id')
+          name=$(echo "$resp" | jq -r '.result[0].name')
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "Account: $name ($id)"
+
+      - name: Create the D1 database
+        id: d1
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: |
+          set -uo pipefail
+          npx wrangler d1 create lyme-db 2>&1 | tee /tmp/d1.log || true
+          # Whether it was just created or already existed, read the id back from the list.
+          id=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[] | select(.name=="lyme-db") | .uuid')
+          if [ -z "$id" ] || [ "$id" = "null" ]; then
+            echo "::error::Could not resolve the lyme-db database id."; cat /tmp/d1.log; exit 1
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "D1 lyme-db: $id"
+
+      - name: Create the KV namespace
+        id: kv
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: |
+          set -uo pipefail
+          npx wrangler kv namespace create KV 2>&1 | tee /tmp/kv.log || true
+          id=$(npx wrangler kv namespace list 2>/dev/null \
+                | jq -r '.[] | select(.title|test("KV$")) | .id' | head -1)
+          if [ -z "$id" ] || [ "$id" = "null" ]; then
+            echo "::error::Could not resolve the KV namespace id."; cat /tmp/kv.log; exit 1
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "KV: $id"
+
+      - name: Create the R2 bucket
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: npx wrangler r2 bucket create lyme-story-media || echo "bucket already exists"
+
+      - name: Create the Pages project
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: |
+          npx wrangler pages project create "${{ inputs.project_name }}" \
+            --production-branch=main || echo "project already exists"
+
+      - name: Apply the database schema
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: |
+          # The schema is written with IF NOT EXISTS throughout, so this is safe to repeat.
+          sed -i "s|REPLACE_WITH_ID_FROM_wrangler_d1_create|${{ steps.d1.outputs.id }}|" wrangler.toml
+          npx wrangler d1 execute lyme-db --remote --file=./schema.sql
+
+      - name: Attach the custom domain
+        if: ${{ inputs.custom_domain != '' }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.account.outputs.id }}
+        run: |
+          curl -sS -X POST \
+            "https://api.cloudflare.com/client/v4/accounts/${{ steps.account.outputs.id }}/pages/projects/${{ inputs.project_name }}/domains" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"name":"${{ inputs.custom_domain }}"}' | jq '{success, errors, name: .result.name, status: .result.status}'
+
+      - name: Summary
+        run: |
+          {
+            echo "## Cloudflare resources"
+            echo
+            echo "Copy these into \`wrangler.toml\` **and** \`worker/wrangler.toml\`, then commit."
+            echo
+            echo '| Binding | Value |'
+            echo '|---|---|'
+            echo '| Account ID | `${{ steps.account.outputs.id }}` |'
+            echo '| D1 `database_id` | `${{ steps.d1.outputs.id }}` |'
+            echo '| KV `id` | `${{ steps.kv.outputs.id }}` |'
+            echo '| R2 bucket | `lyme-story-media` |'
+            echo '| Pages project | `${{ inputs.project_name }}` |'
+            echo '| Custom domain | `${{ inputs.custom_domain }}` |'
+            echo
+            echo "These are identifiers, not secrets."
+          } >> "$GITHUB_STEP_SUMMARY"
