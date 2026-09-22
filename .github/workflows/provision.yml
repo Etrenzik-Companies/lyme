@@ -164,33 +164,49 @@ jobs:
 
       # ------------------------------------------------------------------------
 
+      # Values are passed in through env rather than interpolated into the shell, so the
+      # markdown never has to survive GitHub's expression parser and a quote in a status
+      # string cannot break the workflow file.
       - name: Summary
         if: always()
+        env:
+          ACCT: ${{ steps.account.outputs.id }}
+          PROJECT: ${{ inputs.project_name }}
+          DOMAIN: ${{ inputs.custom_domain }}
+          DOMAIN_OK: ${{ steps.domain.outputs.attached }}
+          P_PAGES: ${{ steps.probe.outputs.pages }}
+          P_D1: ${{ steps.probe.outputs.d1 }}
+          P_KV: ${{ steps.probe.outputs.kv }}
+          P_R2: ${{ steps.probe.outputs.r2 }}
+          P_WORKERS: ${{ steps.probe.outputs.workers }}
+          D1_ID: ${{ steps.d1.outputs.id }}
+          KV_ID: ${{ steps.kv.outputs.id }}
         run: |
+          status () { [ "$1" = "yes" ] && echo "ok" || echo "**token lacks $2**"; }
           {
             echo "## Provisioning result"
             echo
             echo '| Resource | Status | Value to commit |'
             echo '|---|---|---|'
-            echo '| Account ID | found | `${{ steps.account.outputs.id }}` |'
-            echo '| Pages project `${{ inputs.project_name }}` | ${{ steps.probe.outputs.pages == ''yes'' && ''created / exists'' || ''**token lacks Pages:Edit**'' }} | — |'
-            echo '| Custom domain | ${{ steps.domain.outputs.attached == ''yes'' && ''attached'' || ''not attached'' }} | `${{ inputs.custom_domain }}` |'
-            echo '| D1 `lyme-db` | ${{ steps.probe.outputs.d1 == ''yes'' && ''ok'' || ''**token lacks D1:Edit**'' }} | `${{ steps.d1.outputs.id }}` |'
-            echo '| KV | ${{ steps.probe.outputs.kv == ''yes'' && ''ok'' || ''**token lacks Workers KV:Edit**'' }} | `${{ steps.kv.outputs.id }}` |'
-            echo '| R2 bucket | ${{ steps.probe.outputs.r2 == ''yes'' && ''ok'' || ''**token lacks Workers R2:Edit**'' }} | `lyme-story-media` |'
-            echo '| Workers (cron) | ${{ steps.probe.outputs.workers == ''yes'' && ''ok'' || ''**token lacks Workers Scripts:Edit**'' }} | — |'
+            echo "| Account ID | found | \`$ACCT\` |"
+            echo "| Pages project \`$PROJECT\` | $(status "$P_PAGES" 'Pages:Edit') | — |"
+            echo "| Custom domain | $([ "$DOMAIN_OK" = yes ] && echo attached || echo 'not attached') | \`$DOMAIN\` |"
+            echo "| D1 \`lyme-db\` | $(status "$P_D1" 'D1:Edit') | \`${D1_ID:-—}\` |"
+            echo "| KV | $(status "$P_KV" 'Workers KV Storage:Edit') | \`${KV_ID:-—}\` |"
+            echo "| R2 bucket | $(status "$P_R2" 'Workers R2 Storage:Edit') | \`lyme-story-media\` |"
+            echo "| Workers (cron) | $(status "$P_WORKERS" 'Workers Scripts:Edit') | — |"
             echo
-            if [ "${{ steps.probe.outputs.d1 }}" != "yes" ] || [ "${{ steps.probe.outputs.kv }}" != "yes" ] || [ "${{ steps.probe.outputs.r2 }}" != "yes" ]; then
+            if [ "$P_D1" != yes ] || [ "$P_KV" != yes ] || [ "$P_R2" != yes ]; then
               echo "### Token permissions to add"
               echo
-              echo "Cloudflare dashboard -> My Profile -> API Tokens -> edit the token used here, and add:"
+              echo "Cloudflare dashboard -> My Profile -> API Tokens -> edit the token used here, add:"
               echo
               echo '- **Account / D1** -> Edit'
               echo '- **Account / Workers KV Storage** -> Edit'
               echo '- **Account / Workers R2 Storage** -> Edit'
               echo '- **Account / Workers Scripts** -> Edit  (only needed for the cron worker)'
               echo
-              echo "Then re-run this workflow. The static site deploys and reads fine without them;"
+              echo "Then re-run this workflow. The static site builds and deploys without them;"
               echo "the petition, stories and news APIs need D1 and KV."
             else
               echo "All resources present. Paste the IDs above into \`wrangler.toml\` **and**"
