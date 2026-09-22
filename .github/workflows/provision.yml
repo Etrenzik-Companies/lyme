@@ -75,7 +75,10 @@ jobs:
               echo "  MISSING  $1  (HTTP $code)"; echo "$1=no" >> "$GITHUB_OUTPUT"
             fi
           }
-          echo "Token capabilities:"
+          # NOTE: these are READ probes. A token can pass one and still fail to create the
+          # resource, because Cloudflare splits Read and Edit into separate permissions.
+          # The create steps below report that distinction when it bites.
+          echo "Token read access:"
           probe pages   "pages/projects"
           probe d1      "d1/database"
           probe kv      "storage/kv/namespaces"
@@ -127,7 +130,14 @@ jobs:
           set -uo pipefail
           npx wrangler d1 create lyme-db 2>&1 | tee /tmp/d1.log || true
           id=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[]? | select(.name=="lyme-db") | .uuid')
-          [ -n "$id" ] && [ "$id" != "null" ] || { echo "::warning::could not resolve lyme-db id"; exit 1; }
+          if [ -z "$id" ] || [ "$id" = "null" ]; then
+            if grep -qi "Authentication error" /tmp/d1.log; then
+              echo "::warning::The API token can READ D1 but not create databases. Add 'Account / D1 -> Edit' to the token and re-run."
+            else
+              echo "::warning::could not resolve lyme-db id"
+            fi
+            exit 1
+          fi
           echo "id=$id" >> "$GITHUB_OUTPUT"
           echo "D1 lyme-db: $id"
 
