@@ -170,17 +170,32 @@ curl "https://lyme-cron.<your-subdomain>.workers.dev/__run?job=news&key=$RUN_KEY
 
 ## CI
 
-`.github/workflows/deploy.yml` builds and deploys on every push to `main`. It needs two
-repository secrets:
+Two workflows:
 
-- `CLOUDFLARE_API_TOKEN` — permissions: *Cloudflare Pages: Edit*, *D1: Edit*,
-  *Workers KV Storage: Edit*, *Workers R2 Storage: Edit*
-- `CLOUDFLARE_ACCOUNT_ID`
+- **`provision.yml`** — run by hand (`gh workflow run provision.yml`). Creates the Pages
+  project, D1, KV, R2, the DNS records and the custom domains. Idempotent; re-run it any
+  time. It prints the resource IDs in the job summary.
+- **`deploy.yml`** — builds and deploys on every push to `main`.
 
-and optionally a repository **variable** `TURNSTILE_SITE_KEY`.
+Required repository secret:
 
-The workflow asserts that `dist/index.html` actually contains a rendered chart before
-deploying, so a broken data pipeline fails the build instead of shipping an empty page.
+- `CLOUDFLARE_API_TOKEN` — needs **Edit** (not just Read) on each of:
+  *Cloudflare Pages*, *D1*, *Workers KV Storage*, *Workers R2 Storage*,
+  *Workers Scripts* (for the cron worker), plus *Zone / DNS: Edit* on the site's zone.
+
+  Cloudflare splits Read and Edit into separate permissions and wrangler reports both as a
+  bare "Authentication error", so `provision.yml` probes read access and the create steps
+  say explicitly which Edit permission is missing.
+
+Optional: `CLOUDFLARE_ACCOUNT_ID` (inferred when the token sees exactly one account) and a
+repository **variable** `TURNSTILE_SITE_KEY`.
+
+`deploy.yml` asserts that `dist/index.html` actually contains a rendered chart with its
+annotations before deploying, so a broken data pipeline fails the build instead of shipping
+an empty page. It also strips any binding whose ID is still a placeholder — Cloudflare
+rejects an entire deployment over one unprovisioned resource, and the site should not go
+dark because the database is not ready. Routes guard on the missing binding and return
+"not configured yet".
 
 ---
 
