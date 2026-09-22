@@ -1,0 +1,22 @@
+{
+  "name": "lyme-truth-project",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lyme disease case tracker, daily news engine, petition and patient story archive.",
+  "scripts": {
+    "data": "node scripts/refresh-cdc-data.mjs",
+    "og": "node scripts/make-og.mjs",
+    "build": "node scripts/build.mjs",
+    "dev": "npm run build && wrangler pages dev dist --d1 DB=lyme-db --kv KV --compatibility-date=2025-09-01",
+    "deploy": "npm run build && wrangler pages deploy dist",
+    "db:init": "wrangler d1 execute lyme-db --file=./schema.sql --remote",
+    "db:init:local": "wrangler d1 execute lyme-db --file=./schema.sql --local",
+    "worker:dev": "wrangler dev --config worker/wrangler.toml",
+    "worker:deploy": "wrangler deploy --config worker/wrangler.toml"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "wrangler": "^4.40.0"
+  }
+}

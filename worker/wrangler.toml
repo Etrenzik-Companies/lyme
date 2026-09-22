@@ -1,0 +1,31 @@
+name = "lyme-cron"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# News every six hours; social drafting twice a day; retention sweep nightly.
+# The job is chosen from event.cron in src/index.js — keep these strings in sync.
+[triggers]
+crons = ["0 */6 * * *", "0 13,21 * * *", "30 4 * * *"]
+
+[vars]
+SITE_URL = "https://lyme.etrenzik.com"
+X_REFRESH_TOKEN_KV_KEY = "x_refresh_token"
+
+# Secrets (wrangler secret put --config worker/wrangler.toml <NAME>):
+#   RUN_KEY             gate for the manual /__run trigger
+#   CONGRESS_API_KEY    optional; the Congress.gov source is skipped without it
+#   X_CLIENT_ID, X_CLIENT_SECRET, X_REFRESH_TOKEN
+#   FB_PAGE_ID, FB_PAGE_TOKEN
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lyme-db"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_ID_FROM_wrangler_kv_namespace_create"
+
+[observability]
+enabled = true

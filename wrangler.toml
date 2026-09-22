@@ -1,0 +1,27 @@
+name = "lyme-truth-project"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "dist"
+
+# --- Public, non-secret configuration -----------------------------------
+# Secrets are NEVER in this file. Set them with:
+#   wrangler pages secret put <NAME>
+# Required secrets: TURNSTILE_SECRET, EMAIL_HASH_SALT, EMAIL_ENC_KEY, IP_HASH_SALT
+[vars]
+SITE_URL = "https://example.pages.dev"
+SITE_NAME = "The Lyme Accountability Project"
+CONTACT_EMAIL = "contact@example.org"
+TURNSTILE_SITE_KEY = "1x00000000000000000000AA"   # Cloudflare test key; replace before launch
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lyme-db"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_ID_FROM_wrangler_kv_namespace_create"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "lyme-story-media"
