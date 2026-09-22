@@ -102,20 +102,57 @@ jobs:
           ACCT: ${{ steps.account.outputs.id }}
         run: |
           set -uo pipefail
+          DOMAIN="${{ inputs.custom_domain }}"
+
+          # Pages can only create the DNS record automatically when the zone lives in the
+          # SAME Cloudflare account. If it does not, the domain sits in "initializing"
+          # forever and the fix is a manual CNAME — so check and say which case this is.
+          zones=$(curl -sS "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+          zone_acct=$(echo "$zones" | jq -r '.result[0].account.id // empty')
+          if [ -z "$zone_acct" ]; then
+            echo "::warning::$DOMAIN is not a zone this token can see. Add the domain to Cloudflare (or grant the token Zone access) so the DNS record can be created automatically."
+          elif [ "$zone_acct" != "$ACCT" ]; then
+            echo "::warning::$DOMAIN is in Cloudflare account $zone_acct but Pages is in $ACCT. Cross-account domains need the CNAME added by hand."
+          else
+            echo "Zone $DOMAIN is in this account ($zone_acct) — Pages can manage DNS."
+          fi
+
           out=$(curl -sS -X POST \
             "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/${{ inputs.project_name }}/domains" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
-            --data '{"name":"${{ inputs.custom_domain }}"}')
+            --data "{\"name\":\"$DOMAIN\"}")
           echo "$out" | jq '{success, errors, name: .result.name, status: .result.status}'
-          if [ "$(echo "$out" | jq -r '.success')" = "true" ]; then
+
+          if [ "$(echo "$out" | jq -r '.success')" = "true" ] \
+             || echo "$out" | jq -e '.errors[]? | select(.message|test("already|exists"; "i"))' >/dev/null; then
             echo "attached=yes" >> "$GITHUB_OUTPUT"
-          elif echo "$out" | jq -e '.errors[]? | select(.message|test("already"; "i"))' >/dev/null; then
-            echo "attached=yes" >> "$GITHUB_OUTPUT"
-            echo "Domain was already attached."
           else
             echo "attached=no" >> "$GITHUB_OUTPUT"
-            echo "::warning::Could not attach ${{ inputs.custom_domain }} — see the response above."
+            echo "::warning::Could not attach $DOMAIN — see the response above."
+          fi
+
+          # Nudge validation and report where it got to. "active" means it is serving.
+          sleep 10
+          curl -sS -X PATCH \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/${{ inputs.project_name }}/domains/$DOMAIN" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
+            --data '{}' >/dev/null || true
+          sleep 5
+          status=$(curl -sS \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/${{ inputs.project_name }}/domains/$DOMAIN" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            | jq -r '.result.status // "unknown"')
+          echo "Domain status: $status"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          # Show what DNS currently says, so a missing record is obvious in the log.
+          echo "Apex CNAME/A records in the zone:"
+          if [ -n "$zone_acct" ]; then
+            curl -sS "https://api.cloudflare.com/client/v4/zones/$(echo "$zones" | jq -r '.result[0].id')/dns_records?name=$DOMAIN" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              | jq -r '.result[]? | "  \(.type)  \(.name) -> \(.content)  proxied=\(.proxied)"'
           fi
 
       # ---- storage: nice to have, allowed to fail -----------------------------
