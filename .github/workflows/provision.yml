@@ -147,12 +147,45 @@ jobs:
           echo "Domain status: $status"
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
-          # Show what DNS currently says, so a missing record is obvious in the log.
-          echo "Apex CNAME/A records in the zone:"
-          if [ -n "$zone_acct" ]; then
-            curl -sS "https://api.cloudflare.com/client/v4/zones/$(echo "$zones" | jq -r '.result[0].id')/dns_records?name=$DOMAIN" \
+          # Pages only auto-creates the DNS record when the project already has a
+          # production deployment at attach time. Attach first, deploy later, and the
+          # domain sits in "pending" with no record — so create it here if it is absent.
+          # (Cloudflare flattens a CNAME at the apex, so this is valid for the root.)
+          if [ -n "$zone_acct" ] && [ "$zone_acct" = "$ACCT" ]; then
+            ZONE_ID=$(echo "$zones" | jq -r '.result[0].id')
+            TARGET="${{ inputs.project_name }}.pages.dev"
+            # The real hostname includes Cloudflare's project suffix; read it back.
+            TARGET=$(curl -sS \
+              "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/${{ inputs.project_name }}" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              | jq -r '.result[]? | "  \(.type)  \(.name) -> \(.content)  proxied=\(.proxied)"'
+              | jq -r '.result.subdomain // empty')
+            [ -n "$TARGET" ] || TARGET="${{ inputs.project_name }}.pages.dev"
+
+            for HOST in "$DOMAIN" "www.$DOMAIN"; do
+              existing=$(curl -sS "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$HOST" \
+                          -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result | length')
+              if [ "$existing" = "0" ]; then
+                echo "Creating CNAME $HOST -> $TARGET"
+                curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+                  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
+                  --data "{\"type\":\"CNAME\",\"name\":\"$HOST\",\"content\":\"$TARGET\",\"proxied\":true,\"comment\":\"Cloudflare Pages: ${{ inputs.project_name }}\"}" \
+                  | jq -r 'if .success then "  created" else "  " + (.errors[0].message // "failed") end'
+              else
+                echo "$HOST already has $existing record(s)."
+              fi
+            done
+
+            # www needs to be a Pages custom domain too, or it resolves but 404s.
+            curl -sS -X POST \
+              "https://api.cloudflare.com/client/v4/accounts/$ACCT/pages/projects/${{ inputs.project_name }}/domains" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
+              --data "{\"name\":\"www.$DOMAIN\"}" \
+              | jq -r 'if .success then "www attached" else "www: " + (.errors[0].message // "failed") end'
+
+            echo "DNS records now:"
+            curl -sS "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              | jq -r '.result[]? | select(.type=="CNAME" or .type=="A") | "  \(.type)  \(.name) -> \(.content)  proxied=\(.proxied)"'
           fi
 
       # ---- storage: nice to have, allowed to fail -----------------------------
